@@ -57,12 +57,12 @@ struct commandLine* createCommandLine(char* givenLine) {
 	//also store the command in the arguments pointer array
 	currCommand->argumentArray[0] = currCommand->command;
 
-	//set inBacground to false
+	//set inBackground to false
 	currCommand->inBackground = false;
 
 
 	//next, add all of the arguments to the argument pointer array until either
-	//the end of the string is reached or <, >, & (at the end), keeping track of
+	//the end of the string is reached or < or > are reached, keeping track of
 	//the index of the argument array
 	token = __strtok_r(NULL, " \n", &token_ptr);
 	//printf("%s\n", token);
@@ -73,31 +73,22 @@ struct commandLine* createCommandLine(char* givenLine) {
 		//if the token is a < or >, keep track of that with boolean values
 		if (strcmp(token, "<") == 0 || strcmp(token, ">") == 0) {
 
+			//there is an input file
 			if (strcmp(token, "<") == 0) {
 				redInput = true;
 			}
 			
+			//there is an output file
 			if (strcmp(token, ">") == 0) {
 				redOutput = true;
 			}
 		}
 
-		//if < or > was found, break out of the loop
+		//if < or > was found, break out of the loop since there are no more
+		//arguments
 		if (redInput || redOutput) {
 			break;
 		}
-
-		//else if & is found 
-		/*if (strcmp(token, "&") == 0) {
-
-			//if it is at the end of the file, in background is true
-			char* tempPtr = token_ptr;
-
-			char* tempToken = __strtok_r(NULL, " \n", &tempPtr);
-			if (tempToken == NULL) {
-				currCommand->inBackground = true;
-			}
-		}*/
 
 		//otherwise, add the current token to the array of arguments
 		printf("%s\n", token);
@@ -108,36 +99,74 @@ struct commandLine* createCommandLine(char* givenLine) {
 	}
 
 	//if the last argument includes \n, remove it
-	if (strstr(currCommand->argumentArray[arrayIndex - 1], "\n") != NULL) {
+	/*if (strstr(currCommand->argumentArray[arrayIndex - 1], "\n") != NULL) {
 		printf("Contains a newline!\n");
 
+	}*/
+
+	//if the last argument is an &, set inBackground to true and remove it
+	//from the list of arguments
+	if (strstr(currCommand->argumentArray[arrayIndex - 1], "&") != NULL) {
+		currCommand->inBackground = true;
+		currCommand->argumentArray[arrayIndex - 1] = NULL;
 	}
 
-	//if there is input redirection, get the file name and then check for
-	//output redirection
+	//if there is input redirection and it was caught first, get the file name 
+	//and then check for output redirection - if there is output redirection,
+	//also get that filename
 	if (redInput) {
+		//get the input file name
 		token = __strtok_r(NULL, " \n", &token_ptr);
 		currCommand->inputFile = calloc(strlen(token) + 1, sizeof(char));
 		strcpy(currCommand->inputFile, token);
 
+		//check for output redirection
 		token = __strtok_r(NULL, " \n", &token_ptr);
+
 		if (token != NULL && strcmp(token, ">") == 0) {
-			redOutput = true;
+			//get the output file name if there is output redirection
+			token = __strtok_r(NULL, " \n", &token_ptr);
+			currCommand->outputFile = calloc(strlen(token) + 1, sizeof(char));
+			strcpy(currCommand->outputFile, token);
 		}
 	}
 
-	//if there is output redirection, get the file name
+	//if there is output redirection and it was caught first, get the file name 
+	//and then check for input redirection - if there is input redirection,
+	//also get that filename
 	if (redOutput) {
+		//get the output file name
 		token = __strtok_r(NULL, " \n", &token_ptr);
 		currCommand->outputFile = calloc(strlen(token) + 1, sizeof(char));
 		strcpy(currCommand->outputFile, token);
+
+		//check for input redirection
+		token = __strtok_r(NULL, " \n", &token_ptr);
+
+		if (token != NULL && strcmp(token, "<") == 0) {
+			//get the input filename if there is input redirection
+			token = __strtok_r(NULL, " \n", &token_ptr);
+			currCommand->inputFile = calloc(strlen(token) + 1, sizeof(char));
+			strcpy(currCommand->inputFile, token);
+		}
 	}
 
 	//if after input/out redirection, there is a &, run in background is true
 	if ((redOutput || redInput)) {
-		token = __strtok_r(NULL, " \n", &token_ptr);
+
+		//first, check if the current token is & - if it is, inBackground is true
 		if (token != NULL && strcmp(token, "&") == 0) {
 			currCommand->inBackground = true;
+		}
+
+		//otherwise, if token is not & but is also not NULL
+		else if (token != NULL) {
+
+			//get the next token and check for & - if & is there, inBackground is true
+			token = __strtok_r(NULL, " \n", &token_ptr);
+			if (token != NULL && strcmp(token, "&") == 0) {
+				currCommand->inBackground = true;
+			}
 		}
 	}
 
@@ -199,29 +228,6 @@ int main(void) {
 	}
 
 
-
-	//bool exitSmallsh = false;
-
-	//while exitSmallsh is false:
-
-		//print :
-		//get the input from the user and store it (clear the string first)
-		
-		//if the string contains a #, it is a comment - skip this while iteration
-
-		//otherwise, send off to function that tokenizes it (linked list?) and get a link to the head
-		
-		//if the command (first thing in list) is exit, cd, or status:
-			//if exit
-				//send to function that ends all child processes (iterates through a linkedlist of processes)
-				//bool exitSmallsh = true
-			//else
-				//send off to the relevant function to be run (use switch statement)
-
-		//else if it is not one of those
-			//send off to be executed using one of the exec functions
-
-	//once exited, properly exit and end the program
 		
 
 	/*
