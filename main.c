@@ -2,12 +2,15 @@
 * Author: Katelyn Lindsey
 * Date: 2/4/2021
 * Assignment: Homework 3
-* Description: smallsh - A program for a shell written in C.
+* Description: smallsh - A program for a shell written in C. Includes built-in 
+* commands for exit, status, and cd, as well as variable expansion for $$.
 */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <stdbool.h>
 
@@ -261,6 +264,50 @@ struct commandLine* createCommandLine(char* givenLine, int smallshPid) {
 
 
 /*
+* void executeCommand
+* 
+* Takes a struct commandLine and executes the command with the specified
+* arguments.
+* Input/Output redirection adapted from the exploration: processes and i/o
+* example for stdin and stdout, found here: 
+* https://canvas.oregonstate.edu/courses/1798831/pages/exploration-processes-and-i-slash-o
+* execvp usage adapted from the exploration: process api - executing a new program
+* examples, found here:
+* https://canvas.oregonstate.edu/courses/1798831/pages/exploration-process-api-executing-a-new-program
+*/
+void executeCommand(struct commandLine* lineToExecute) {
+
+	//the status of the child - used for waitpid()
+	int childStatus;
+
+	//fork a new process
+	pid_t spawnPid = fork();
+
+	//do different things depending on if there is an error, it is in the
+	//child process, or if it is in the parent process
+	switch (spawnPid) {
+		//if there is an error
+		case -1:
+			perror("fork()\n");
+			exit(1);
+			break;
+		//if in the child process, run the command
+		case 0:
+			execvp(lineToExecute->command, lineToExecute->argumentArray);
+			//run the below if there is an error
+			perror(lineToExecute->command);
+			exit(2);
+			break;
+		//if in the parent process
+		default:
+			//wait for the child to be done
+			spawnPid = waitpid(spawnPid, &childStatus, 0);
+			break;
+	}
+}
+
+
+/*
 * int main(void)
 * 
 * The main function that runs the program.
@@ -312,6 +359,7 @@ int main(void) {
 		//else, send off that command line to be executed
 		else {
 			printf("not special\n");
+			executeCommand(userCommand);
 		}
 		
 	}
