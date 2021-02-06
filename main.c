@@ -28,12 +28,83 @@ struct commandLine {
 };
 
 /*
+* char* varExpansion
+* 
+* Takes a string that contains $ and the smallshPid, and expands each
+* instance of $$ to become the smallshPid, returning a pointer to the
+* resulting string.
+*/
+char* varExpansion(char* token, int smallshPid) {
+
+	//to keep track of the number of $ found in a row
+	int numInRow = 0;
+
+	//temporary storage for the new token being built
+	char newToken[2048] = "\0";
+
+	//the string version of the smallshPid for concatenation
+	char pidString[11] = "\0";
+	sprintf(pidString, "%d", smallshPid);
+
+	//the length of the token
+	int length = strlen(token);
+
+	//loop counter
+	int i;
+
+	//loop through every char in the token, looking for $ - if there are two
+	//in a row, it is replaced with the smallshPid
+	for (i = 0; i < length; i++) {
+
+		//if $ is found, increment numInRow
+		if (strncmp(token + i, "$", 1) == 0) {
+			numInRow++;
+		}
+
+		//else if it is not found
+		else {
+
+			//if there was one $ found, then add it to the newToken
+			if (numInRow == 1) {
+				strncat(newToken, "$", 1);
+			}
+			//otherwise, add the current character to the newToken
+			else {
+				strncat(newToken, token + i, 1);
+			}
+			//reset numInRow to 0
+			numInRow = 0;
+		}
+
+		//if there were two $ in a row, add the pid to the newToken
+		if (numInRow == 2) {
+			strcat(newToken, pidString);
+			//reset numInRow
+			numInRow = 0;
+		}
+	}
+
+	//if there is 1 in numInRow after the loop, add one more $ to the end
+	if (numInRow == 1) {
+		strcat(newToken, "$");
+	}
+
+	//printf("Before: %s, After: %s\n", token, newToken);
+
+	//finally, copy over the new token 
+	strcpy(token, newToken);
+
+	return token;
+}
+
+/*
 * struct commandLine* createCommandLine
 * 
 * Takes a string and creates a struct commandLine, returing a pointer to 
-* the commandLine made.
+* the commandLine made. Also takes the smallshPid in case variable expansion
+* is needed.
 */
-struct commandLine* createCommandLine(char* givenLine) {
+struct commandLine* createCommandLine(char* givenLine, int smallshPid) {
 
 	//reserve space on the heap for the new commandLine
 	struct commandLine* currCommand = malloc(sizeof(struct commandLine));
@@ -51,6 +122,14 @@ struct commandLine* createCommandLine(char* givenLine) {
 
 	//first, get the command (always the first thing)
 	char* token = __strtok_r(givenLine, " \n", &token_ptr);
+
+	//if the token contains $$, send it off for expansion
+	if (strstr(token, "$$") != NULL) {
+		printf("Found $$ in %s\n", token);
+		token = varExpansion(token, smallshPid);
+	}
+
+	//then, add to the currCommand struct
 	currCommand->command = calloc(strlen(token) + 1, sizeof(char));
 	strcpy(currCommand->command, token);
 
@@ -69,6 +148,13 @@ struct commandLine* createCommandLine(char* givenLine) {
 	int arrayIndex = 1;
 
 	while (token != NULL) {
+
+		//always first check for $$ - if the token contains it, send it
+		//off for expansion
+		if (strstr(token, "$$") != NULL) {
+			printf("Found $$ in %s\n", token);
+			token = varExpansion(token, smallshPid);
+		}
 
 		//if the token is a < or >, keep track of that with boolean values
 		if (strcmp(token, "<") == 0 || strcmp(token, ">") == 0) {
@@ -187,6 +273,9 @@ int main(void) {
 	//storage for user input string
 	char userInput[2048] = "\0";
 
+	//store the pid of smallsh
+	int smallshPid = getpid();
+
 	//runs until the program should be exited
 	while (keepRunning) {
 
@@ -204,7 +293,7 @@ int main(void) {
 		}
 
 		//turn the user input string into a commandLine
-		struct commandLine* userCommand = createCommandLine(userInput);
+		struct commandLine* userCommand = createCommandLine(userInput, smallshPid);
 
 		printf("Command: %s\nArgument 1: %s\nArgument 2: %s\n", userCommand->command, userCommand->argumentArray[1], userCommand->argumentArray[2]);
 		printf("Input File: %s\nOutput File: %s\n", userCommand->inputFile, userCommand->outputFile);
