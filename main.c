@@ -37,16 +37,16 @@ struct commandLine {
 * instance of $$ to become the smallshPid, returning a pointer to the
 * resulting string.
 */
-char* varExpansion(char* token, int smallshPid) {
+char* varExpansion(char* token, int smallshPid, char* expandedToken) {
 
 	//to keep track of the number of $ found in a row
 	int numInRow = 0;
 
-	//temporary storage for the new token being built
+	//temporary storage for the new token
 	char newToken[2048] = "\0";
 
 	//the string version of the smallshPid for concatenation
-	char pidString[11] = "\0";
+	char pidString[12] = "\0";
 	sprintf(pidString, "%d", smallshPid);
 
 	//the length of the token
@@ -67,9 +67,11 @@ char* varExpansion(char* token, int smallshPid) {
 		//else if it is not found
 		else {
 
-			//if there was one $ found, then add it to the newToken
+			//if there was only one $ found, then add it to the newToken and
+			//also add the current character to the newToken
 			if (numInRow == 1) {
 				strncat(newToken, "$", 1);
+				strncat(newToken, token + i, 1);
 			}
 			//otherwise, add the current character to the newToken
 			else {
@@ -92,12 +94,9 @@ char* varExpansion(char* token, int smallshPid) {
 		strcat(newToken, "$");
 	}
 
-	//printf("Before: %s, After: %s\n", token, newToken);
-
-	//finally, copy over the new token 
-	strcpy(token, newToken);
-
-	return token;
+	//finally, point expandedToken towards the new token
+	expandedToken = newToken;
+	return expandedToken;
 }
 
 /*
@@ -122,14 +121,19 @@ struct commandLine* createCommandLine(char* givenLine, int smallshPid) {
 	bool redInput = false;
 	bool redOutput = false;
 
+	//if a token contains $$ and needs to be expanded, this will be used to
+	//point towards that new token
+	char* expandedToken;
+
 
 	//first, get the command (always the first thing)
 	char* token = __strtok_r(givenLine, " \n", &token_ptr);
 
 	//if the token contains $$, send it off for expansion
 	if (strstr(token, "$$") != NULL) {
-		printf("Found $$ in %s\n", token);
-		token = varExpansion(token, smallshPid);
+
+		//printf("Found $$ in %s\n", token);
+		token = varExpansion(token, smallshPid, expandedToken);
 	}
 
 	//then, add to the currCommand struct
@@ -147,7 +151,6 @@ struct commandLine* createCommandLine(char* givenLine, int smallshPid) {
 	//the end of the string is reached or < or > are reached, keeping track of
 	//the index of the argument array
 	token = __strtok_r(NULL, " \n", &token_ptr);
-	//printf("%s\n", token);
 	int arrayIndex = 1;
 
 	while (token != NULL) {
@@ -155,8 +158,8 @@ struct commandLine* createCommandLine(char* givenLine, int smallshPid) {
 		//always first check for $$ - if the token contains it, send it
 		//off for expansion
 		if (strstr(token, "$$") != NULL) {
-			printf("Found $$ in %s\n", token);
-			token = varExpansion(token, smallshPid);
+			//printf("Found $$ in %s\n", token);
+			token = varExpansion(token, smallshPid, expandedToken);
 		}
 
 		//if the token is a < or >, keep track of that with boolean values
@@ -324,6 +327,9 @@ int main(void) {
 	//store the pid of smallsh
 	int smallshPid = getpid();
 
+	//store the home environment
+	char* home = getenv("HOME"); 
+
 	//to keep track of the status of the last command
 	int status = 0;
 
@@ -361,13 +367,22 @@ int main(void) {
 
 			//if the command is status, return the status of the last command
 			if (strcmp(userCommand->command, "status") == 0) {
-				printf("exit status %d\n", status);
+				printf("exit value %d\n", status);
 				fflush(stdout);
 			}
 
-			//else if the command is cd, change the directory (if the path given is valid)
+			//else if the command is cd, change the directory to the path given (if the path given is valid)
+			//or if just cd, change to the home environment 
 			else {
-				chdir(userCommand->argumentArray[1]);
+				//if there is a path given, change to that
+				printf("Go to %s\n", userCommand->argumentArray[1]);
+				if (userCommand->argumentArray[1] != NULL) {
+					chdir(userCommand->argumentArray[1]);
+				}
+				//otherwise, change to the home directory
+				else {
+					chdir(home);
+				}
 			}
 		}
 
