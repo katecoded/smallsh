@@ -264,10 +264,10 @@ struct commandLine* createCommandLine(char* givenLine, int smallshPid) {
 
 
 /*
-* void executeCommand
+* int executeCommand
 * 
 * Takes a struct commandLine and executes the command with the specified
-* arguments.
+* arguments. Returns the exit status.
 * Input/Output redirection adapted from the exploration: processes and i/o
 * example for stdin and stdout, found here: 
 * https://canvas.oregonstate.edu/courses/1798831/pages/exploration-processes-and-i-slash-o
@@ -275,9 +275,9 @@ struct commandLine* createCommandLine(char* givenLine, int smallshPid) {
 * examples, found here:
 * https://canvas.oregonstate.edu/courses/1798831/pages/exploration-process-api-executing-a-new-program
 */
-void executeCommand(struct commandLine* lineToExecute) {
+int executeCommand(struct commandLine* lineToExecute) {
 
-	//the status of the child - used for waitpid()
+	//the status of the child - used to return the status of the child process
 	int childStatus;
 
 	//fork a new process
@@ -302,6 +302,7 @@ void executeCommand(struct commandLine* lineToExecute) {
 		default:
 			//wait for the child to be done
 			spawnPid = waitpid(spawnPid, &childStatus, 0);
+			return childStatus;
 			break;
 	}
 }
@@ -322,6 +323,9 @@ int main(void) {
 
 	//store the pid of smallsh
 	int smallshPid = getpid();
+
+	//to keep track of the status of the last command
+	int status = 0;
 
 	//runs until the program should be exited
 	while (keepRunning) {
@@ -354,12 +358,23 @@ int main(void) {
 		//else, if it is another built-in command, send it to be executed
 		else if(strcmp(userCommand->command, "cd") == 0 || strcmp(userCommand->command, "status") == 0) {
 			printf("special case\n");
+
+			//if the command is status, return the status of the last command
+			if (strcmp(userCommand->command, "status") == 0) {
+				printf("exit status %d\n", status);
+				fflush(stdout);
+			}
+
+			//else if the command is cd, change the directory (if the path given is valid)
+			else {
+				chdir(userCommand->argumentArray[1]);
+			}
 		}
 
 		//else, send off that command line to be executed
 		else {
 			printf("not special\n");
-			executeCommand(userCommand);
+			status = executeCommand(userCommand);
 		}
 		
 	}
