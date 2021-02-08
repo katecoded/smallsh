@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <stdbool.h>
 
 
@@ -274,6 +275,7 @@ struct commandLine* createCommandLine(char* givenLine, int smallshPid) {
 * Input/Output redirection adapted from the exploration: processes and i/o
 * example for stdin and stdout, found here: 
 * https://canvas.oregonstate.edu/courses/1798831/pages/exploration-processes-and-i-slash-o
+* https://repl.it/@cs344/54sortViaFilesc
 * execvp usage adapted from the exploration: process api - executing a new program
 * examples, found here:
 * https://canvas.oregonstate.edu/courses/1798831/pages/exploration-process-api-executing-a-new-program
@@ -296,6 +298,54 @@ int executeCommand(struct commandLine* lineToExecute) {
 			break;
 		//if in the child process, run the command
 		case 0:
+
+			//if there is an input file, redirect the input
+			if (lineToExecute->inputFile != NULL) {
+				//first, open the file for reading
+				int inputFD = open(lineToExecute->inputFile, O_RDONLY);
+
+				//if the file cannot be opened for reading, print error and exit
+				if (inputFD == -1) {
+					fprintf(stderr, "cannot open %s for input\n", lineToExecute->inputFile);
+					exit(1);
+				}
+
+				//next, redirect stdin to the input file
+				int inputResult = dup2(inputFD, 0);
+				
+				//if redirecting the input doesn't work, print error message and exit
+				if (inputResult == -1) {
+					fprintf(stderr, "cannot redirect input to %s\n", lineToExecute->inputFile);
+				}
+
+				//if it worked, set the FD_CLOEXEC flag for the input file to close on exit
+				fcntl(inputFD, F_SETFD, FD_CLOEXEC);
+			}
+
+			//if there is an output file, redirect the output
+			if (lineToExecute->outputFile != NULL) {
+				//first, open the file for writing only - file will be truncated if it exists
+				//and created if it doesn't exist
+				int outputFD = open(lineToExecute->outputFile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+				//if the file cannot be opened, print error and exit
+				if (outputFD == -1) {
+					fprintf(stderr, "cannot open %s for output\n", lineToExecute->outputFile);
+					exit(1);
+				}
+
+				//next, redirect stdout to the output file
+				int outputResult = dup2(outputFD, 1);
+				
+				//if redirecting the output doesn't work, print error message and exit
+				if (outputResult == -1) {
+					fprintf(stderr, "cannot redirect output to %s\n", lineToExecute->outputFile);
+				}
+
+				//if it worked, set the FD_CLOEXEC flag for the output file to close on exit
+				fcntl(outputFD, F_SETFD, FD_CLOEXEC);
+			}
+
 			execvp(lineToExecute->command, lineToExecute->argumentArray);
 			//run the below if there is an error
 			perror(lineToExecute->command);
