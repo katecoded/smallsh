@@ -184,7 +184,7 @@ struct commandLine* createCommandLine(char* givenLine, int smallshPid) {
 		}
 
 		//otherwise, add the current token to the array of arguments
-		printf("%s\n", token);
+		//printf("%s\n", token);
 		currCommand->argumentArray[arrayIndex] = token;
 		arrayIndex++;
 
@@ -280,22 +280,24 @@ struct commandLine* createCommandLine(char* givenLine, int smallshPid) {
 * examples, found here:
 * https://canvas.oregonstate.edu/courses/1798831/pages/exploration-process-api-executing-a-new-program
 */
-int executeCommand(struct commandLine* lineToExecute) {
+int executeCommand(struct commandLine* lineToExecute, int* pidArray) {
 
 	//the status of the child - used to return the status of the child process
 	int childStatus;
 
 	//fork a new process
-	pid_t spawnPid = fork();
+	pid_t childPid = fork();
 
 	//do different things depending on if there is an error, it is in the
 	//child process, or if it is in the parent process
-	switch (spawnPid) {
+	switch (childPid) {
+
 		//if there is an error
 		case -1:
 			perror("fork()\n");
 			exit(1);
 			break;
+
 		//if in the child process, run the command
 		case 0:
 
@@ -307,6 +309,7 @@ int executeCommand(struct commandLine* lineToExecute) {
 				//if the file cannot be opened for reading, print error and exit
 				if (inputFD == -1) {
 					fprintf(stderr, "cannot open %s for input\n", lineToExecute->inputFile);
+					fflush(stdout);
 					exit(1);
 				}
 
@@ -316,6 +319,8 @@ int executeCommand(struct commandLine* lineToExecute) {
 				//if redirecting the input doesn't work, print error message and exit
 				if (inputResult == -1) {
 					fprintf(stderr, "cannot redirect input to %s\n", lineToExecute->inputFile);
+					fflush(stdout);
+					exit(1);
 				}
 
 				//if it worked, set the FD_CLOEXEC flag for the input file to close on exit
@@ -331,6 +336,7 @@ int executeCommand(struct commandLine* lineToExecute) {
 				//if the file cannot be opened, print error and exit
 				if (outputFD == -1) {
 					fprintf(stderr, "cannot open %s for output\n", lineToExecute->outputFile);
+					fflush(stdout);
 					exit(1);
 				}
 
@@ -340,22 +346,123 @@ int executeCommand(struct commandLine* lineToExecute) {
 				//if redirecting the output doesn't work, print error message and exit
 				if (outputResult == -1) {
 					fprintf(stderr, "cannot redirect output to %s\n", lineToExecute->outputFile);
+					fflush(stdout);
+					exit(1);
 				}
 
 				//if it worked, set the FD_CLOEXEC flag for the output file to close on exit
 				fcntl(outputFD, F_SETFD, FD_CLOEXEC);
 			}
 
+			//if the process is going to run in the background
+			if (lineToExecute->inBackground == 1) {
+
+				//if there was no input file, redirect to /dev/null
+				if (lineToExecute->inputFile == NULL) {
+					//first, open /dev/null
+					int inputFD = open("/dev/null", O_RDONLY);
+
+					//if /dev/null cannot be opened, print error and exit
+					if (inputFD == -1) {
+						fprintf(stderr, "cannot open /dev/null for input\n");
+						fflush(stdout);
+						exit(1);
+					}
+
+					//redirect to /dev/null
+					int inputResult = dup2(inputFD, 0);
+
+					//if redirecting the input to /dev/null doesn't work, print error message and exit
+					if (inputResult == -1) {
+						fprintf(stderr, "cannot redirect input to /dev/null\n");
+						fflush(stdout);
+						exit(1);
+					}
+				}
+
+				//if there was no output file, redirect to /dev/null
+				if (lineToExecute->outputFile == NULL) {
+					//first, open /dev/null 
+					int outputFD = open("/dev/null", O_WRONLY);
+
+					//if /dev/null cannot be opened, print error and exit
+					if (outputFD == -1) {
+						fprintf(stderr, "cannot open /dev/null for output\n");
+						fflush(stdout);
+						exit(1);
+					}
+
+					//redirect to /dev/null
+					int outputResult = dup2(outputFD, 1);
+
+					//if redirection the output to /dev/null doesn't work, print error message and exit
+					if (outputResult == -1) {
+						fprintf(stderr, "cannot redirect output to /dev/null\n");
+						fflush(stdout);
+						exit(1);
+					}
+				}
+			}
+
 			execvp(lineToExecute->command, lineToExecute->argumentArray);
 			//run the below if there is an error
 			perror(lineToExecute->command);
-			exit(2);
+			exit(1);
 			break;
+
 		//if in the parent process
 		default:
-			//wait for the child to be done
-			spawnPid = waitpid(spawnPid, &childStatus, 0);
-			return childStatus;
+			//if this is a foreground process, wait for the child to be done
+			if (lineToExecute->inBackground == 0) {
+				waitpid(childPid, &childStatus, 0);
+			}
+
+			//otherwise if in the background, don't wait for the child
+			else {
+				waitpid(childPid, &childStatus, WNOHANG);
+				//output that the background process has started
+				printf("background pid is %d\n", childPid);
+				fflush(stdout);
+
+				//add childPid to the end of the array of background processes
+				int index = 0;
+				//find the end of the array
+				while (pidArray[index] != NULL) {
+					index++;
+				}
+				//add to the end of the array
+				pidArray[index] = childPid;
+			}
+
+			//check the status of all background processes
+			int index = 0;
+			int backgroundStatus = 0;
+
+			//iterate through the list of background processes
+			/*while (pidArray[index] != NULL) {
+				waitpid(pidArray[index], &backgroundStatus, WNOHANG);
+
+				//if 0 rather than the pid, the process is not done yet
+				if (backgroundStatus == 0) {
+					index++;
+					continue;
+				}
+
+				//otherwise, print that the process is complete and remove
+				//it from the list of processes, moving everything else over
+
+
+			}*/
+
+			//check if the child terminated normally - if it did, get the status
+			if (WIFEXITED(childStatus)) {
+				//return the child status
+				return WEXITSTATUS(childStatus);
+			}
+			//otherwise if the child did not terminate normally
+			else {
+				return -1;
+			}
 			break;
 	}
 }
@@ -383,6 +490,10 @@ int main(void) {
 	//to keep track of the status of the last command
 	int status = 0;
 
+	//an array to store background processes currently running - used when 
+	//exiting the shell
+	int pidArray[256];
+
 	//runs until the program should be exited
 	while (keepRunning) {
 
@@ -390,6 +501,7 @@ int main(void) {
 		memset(userInput, "\0", sizeof(userInput));
 
 		printf(": ");
+		fflush(stdout);
 
 		//get user input string
 		fgets(userInput, 2048, stdin);
@@ -402,20 +514,29 @@ int main(void) {
 		//turn the user input string into a commandLine
 		struct commandLine* userCommand = createCommandLine(userInput, smallshPid);
 
-		printf("Command: %s\nArgument 1: %s\nArgument 2: %s\n", userCommand->command, userCommand->argumentArray[1], userCommand->argumentArray[2]);
-		printf("Input File: %s\nOutput File: %s\n", userCommand->inputFile, userCommand->outputFile);
-		printf("Background Task? %d\n", userCommand->inBackground);
+		//printf("Command: %s\nArgument 1: %s\nArgument 2: %s\n", userCommand->command, userCommand->argumentArray[1], userCommand->argumentArray[2]);
+		//printf("Input File: %s\nOutput File: %s\n", userCommand->inputFile, userCommand->outputFile);
+		//printf("Background Task? %d\n", userCommand->inBackground);
 
 		//if the command is exit, then exit
 		if (strcmp(userCommand->command, "exit") == 0) {
+
+			//iterate through the list of child processes and terminate them
+			int index = 0;
+			while (pidArray[index] != NULL) {
+				kill(pidArray[index], SIGTERM);
+				index++;
+			}
+
+			//this will stop the while loop from running again
 			keepRunning = false;
 		}
 
 		//else, if it is another built-in command, send it to be executed
 		else if(strcmp(userCommand->command, "cd") == 0 || strcmp(userCommand->command, "status") == 0) {
-			printf("special case\n");
+			//printf("special case\n");
 
-			//if the command is status, return the status of the last command
+			//if the command is status, return the status of the last foreground process
 			if (strcmp(userCommand->command, "status") == 0) {
 				printf("exit value %d\n", status);
 				fflush(stdout);
@@ -425,9 +546,14 @@ int main(void) {
 			//or if just cd, change to the home environment 
 			else {
 				//if there is a path given, change to that
-				printf("Go to %s\n", userCommand->argumentArray[1]);
 				if (userCommand->argumentArray[1] != NULL) {
-					chdir(userCommand->argumentArray[1]);
+					int changeSuccess = chdir(userCommand->argumentArray[1]);
+
+					//if the path is invalid, print an error message
+					if (changeSuccess == -1) {
+						printf("%s: invalid directory\n", userCommand->argumentArray[1]);
+						fflush(stdout);
+					}
 				}
 				//otherwise, change to the home directory
 				else {
@@ -438,8 +564,15 @@ int main(void) {
 
 		//else, send off that command line to be executed
 		else {
-			printf("not special\n");
-			status = executeCommand(userCommand);
+			//printf("not special\n");
+			//if it will be a foreground process, save the status
+			if (userCommand->inBackground == 0) {
+				status = executeCommand(userCommand, pidArray);
+			}
+			//otherwise, don't save the status
+			else {
+				executeCommand(userCommand, pidArray);
+			}
 		}
 		
 	}
