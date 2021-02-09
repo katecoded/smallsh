@@ -3,7 +3,8 @@
 * Date: 2/4/2021
 * Assignment: Homework 3
 * Description: smallsh - A program for a shell written in C. Includes built-in 
-* commands for exit, status, and cd, as well as variable expansion for $$.
+* commands for exit, status, and cd, as well as variable expansion for $$. Also
+* includes signal handling for both SIGINT and SIGTSTP
 */
 
 #include <stdio.h>
@@ -14,7 +15,10 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdbool.h>
+#include <signal.h>
 
+//a global variable to track if background processses are allowed
+bool backgroundAllowed = true;
 
 /*
 * struct commandLine 
@@ -301,6 +305,14 @@ int executeCommand(struct commandLine* lineToExecute, int* pidArray) {
 		//if in the child process, run the command
 		case 0:
 
+			//if it is a foreground process, have default behavior for sigint
+			if (lineToExecute->inBackground == 0) {
+				signal(SIGINT, SIG_DFL);
+			}
+
+			//make all children ignore sigtstp
+			signal(SIGTSTP, SIG_IGN);
+
 			//if there is an input file, redirect the input
 			if (lineToExecute->inputFile != NULL) {
 				//first, open the file for reading
@@ -432,27 +444,17 @@ int executeCommand(struct commandLine* lineToExecute, int* pidArray) {
 				}
 				//add to the end of the array
 				pidArray[index] = childPid;
+
+				return 0;
 			}
 
-			//check the status of all background processes
-			int index = 0;
-			int backgroundStatus = 0;
-
-			//iterate through the list of background processes
-			/*while (pidArray[index] != NULL) {
-				waitpid(pidArray[index], &backgroundStatus, WNOHANG);
-
-				//if 0 rather than the pid, the process is not done yet
-				if (backgroundStatus == 0) {
-					index++;
-					continue;
-				}
-
-				//otherwise, print that the process is complete and remove
-				//it from the list of processes, moving everything else over
-
-
-			}*/
+			//if the child terminated because of a signal, get what signal it was
+			if (WIFSIGNALED(childStatus)) {
+				printf("terminated by signal %d\n", WTERMSIG(childStatus));
+				fflush(stdout);
+				//when the status is this value, it will print the last signal that terminated it
+				return -2;
+			}
 
 			//check if the child terminated normally - if it did, get the status
 			if (WIFEXITED(childStatus)) {
@@ -463,7 +465,31 @@ int executeCommand(struct commandLine* lineToExecute, int* pidArray) {
 			else {
 				return -1;
 			}
+
 			break;
+	}
+}
+
+/*
+* sigtstpHandler
+* 
+* Handles the SIGTSTP signal by toggling the backgroundAllowed to true or false.
+*/
+void sigtstpHandler(int sig) {
+
+	//if backgroundAllowed is true, set to false and print message that foreground-only
+	//mode is on
+	if (backgroundAllowed) {
+		backgroundAllowed = false;
+		char* notAllowed = "\nEntering foreground-only mode (& is now ignored)\n: ";
+		write(STDOUT_FILENO, notAllowed, 53);
+	}
+
+	//otherwise, set to true and print message that foreground-only mode is off
+	else {
+		backgroundAllowed = true;
+		char* allowed = "\nExiting foreground-only mode\n: ";
+		write(STDOUT_FILENO, allowed, 33);
 	}
 }
 
@@ -472,8 +498,23 @@ int executeCommand(struct commandLine* lineToExecute, int* pidArray) {
 * int main(void)
 * 
 * The main function that runs the program.
+* 
+* The signal handlers are adapted from the signal handling example:
+* https://repl.it/@cs344/53siguserc
 */
 int main(void) {
+
+	//ignore ctrl-c for parent
+	signal(SIGINT, SIG_IGN);
+	
+	//signal handler struct for SIGTSTP 
+	struct sigaction SIGTSTP_action = { 0 };
+	//register a signal handler
+	SIGTSTP_action.sa_sigaction = sigtstpHandler;
+	sigfillset(&SIGTSTP_action.sa_mask);
+	//set sa_restart flag
+	SIGTSTP_action.sa_flags = SA_RESTART;
+	sigaction(SIGTSTP, &SIGTSTP_action, NULL);
 
 	//bool for should the program be exited
 	bool keepRunning = true;
@@ -513,6 +554,10 @@ int main(void) {
 			//otherwise, print that the process is complete and remove
 			//it from the list of processes, moving everything else over
 			else {
+				//if there was an error when the processes exited, the status is 1
+				if (backgroundStatus != 0) {
+					backgroundStatus = 1;
+				}
 				printf("background pid %d is done: exit value %d\n", pidArray[index], backgroundStatus);
 				fflush(stdout);
 			}
@@ -559,8 +604,17 @@ int main(void) {
 
 			//if the command is status, return the status of the last foreground process
 			if (strcmp(userCommand->command, "status") == 0) {
-				printf("exit value %d\n", status);
-				fflush(stdout);
+				//if the status is -2, it was terminated by signal 2
+				if (status == -2) {
+					printf("terminated by signal 2\n");
+					fflush(stdout);
+				}
+				//otherwise if the process was not terminated by a signal, print
+				//status as normal
+				else {
+					printf("exit value %d\n", status);
+					fflush(stdout);
+				}
 			}
 
 			//else if the command is cd, change the directory to the path given (if the path given is valid)
@@ -585,6 +639,12 @@ int main(void) {
 
 		//else, send off that command line to be executed
 		else {
+			//first, check if background processes are allowed - if not,
+			//make sure inBackground = false
+			if (!backgroundAllowed) {
+				userCommand->inBackground = false;
+			}
+
 			//printf("not special\n");
 			//if it will be a foreground process, save the status
 			if (userCommand->inBackground == 0) {
@@ -597,40 +657,6 @@ int main(void) {
 		}
 		
 	}
-
-
-		
-
-	/*
-	char* testString = "hi";
-	printf("%p\n", &testString);
-	testString = "yo";
-	printf("%p\n", &testString);
-
-
-
-	char* testArray[512]; //an array of char pointers
-	char* token1 = "Hello";
-
-	testArray[0] = token1;
-	printf("%p, %p\n", &token1, &testArray[0]);
-
-	token1 = "hi";
-	testArray[1] = token1;
-
-	printf("%p, %p\n", &token1, &testArray[1]);
-
-	printf("%s\n", testArray[0]);
-	printf("%s\n", testArray[1]);
-
-	
-	//get main's pid
-	int mainPID = getpid();
-
-	printf("Hello!\n");
-	printf("My pid is %d and my parent's pid is %d\n", getpid(), getppid());
-	printf("%d\n", mainPID);
-	*/
 
 	return 0;
 }
