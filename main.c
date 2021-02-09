@@ -497,6 +497,27 @@ int main(void) {
 	//runs until the program should be exited
 	while (keepRunning) {
 
+		//check the status of all background processes
+		int index = 0;
+		int backgroundStatus = 0;
+
+		//iterate through the list of background processes
+		while (pidArray[index] != NULL) {
+			//if waitpid returns something other than the child's pid, then
+			//it is not finished yet - continue
+			if (waitpid(pidArray[index], &backgroundStatus, WNOHANG) != pidArray[index]) {
+				index++;
+				continue;
+			}
+
+			//otherwise, print that the process is complete and remove
+			//it from the list of processes, moving everything else over
+			else {
+				printf("background pid %d is done: exit value %d\n", pidArray[index], backgroundStatus);
+				fflush(stdout);
+			}
+		}
+
 		//clear the user input string if needed
 		memset(userInput, "\0", sizeof(userInput));
 
